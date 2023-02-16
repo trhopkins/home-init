@@ -1,0 +1,52 @@
+---
+- hosts: localhost
+  tasks:
+
+  - name: Abort if host is Archiso
+    fail:
+      msg: 'This host is not booted from the Arch installer iso.'
+    when: ansible_nodename != 'archiso'
+    tags: [quick_exit]
+
+  - name: Synchronize clock via NTP
+    command: timedatectl set-ntp true
+    tags: [clock_sync]
+
+  - name: Partition boot disk
+    block:
+
+    - name: Wipe install drive partitions
+      command: find /dev -wholename /dev/sda -exec -wipefs --force --all {} \;
+      tags: [wipefs]
+
+    - name: Create boot partition
+      parted:
+        device: /dev/sda
+        label: gpt
+        number: 1
+        part_end: 512M
+        name: boot
+        flags: [boot, esp]
+        state: present
+
+    - name: Create swap partition
+      parted:
+        device: /dev/sda
+        label: gpt
+        number: 2
+        part_end: 8G
+        name: swap
+        flags: [swap]
+        state: present
+
+    - name: Create swap partition
+      parted:
+        device: /dev/sda
+        label: gpt
+        number: 3
+        part_end: 100%
+        name: root
+        flags: [root]
+        state: present
+
+  - tags: [repartition]
