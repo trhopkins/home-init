@@ -1,52 +1,71 @@
 ---
-- hosts: localhost
+- host: localhost
+  vars:
+    mount_src: /dev/sda
+    mount_path: /mnt
   tasks:
-
   - name: Abort if host is Archiso
     fail:
       msg: 'This host is not booted from the Arch installer iso.'
     when: ansible_nodename != 'archiso'
-    tags: [quick_exit]
-
   - name: Synchronize clock via NTP
-    command: timedatectl set-ntp true
-    tags: [clock_sync]
-
+    shell: timedatectl set-ntp true
   - name: Partition boot disk
     block:
-
     - name: Wipe install drive partitions
-      command: find /dev -wholename /dev/sda -exec -wipefs --force --all {} \;
-      tags: [wipefs]
-
+      shell: find /dev -wholename "{{ mount_src }}" -exec -wipefs --force --all {} \;
     - name: Create boot partition
       parted:
-        device: /dev/sda
+        device: "{{ mount_src }}"
         label: gpt
         number: 1
         part_end: 512M
         name: boot
         flags: [boot, esp]
         state: present
-
     - name: Create swap partition
       parted:
-        device: /dev/sda
+        device: "{{ mount_src }}"
         label: gpt
         number: 2
         part_end: 8G
         name: swap
         flags: [swap]
         state: present
-
     - name: Create swap partition
       parted:
-        device: /dev/sda
+        device: "{{ mount_src }}"
         label: gpt
         number: 3
         part_end: 100%
         name: root
         flags: [root]
         state: present
-
-  - tags: [repartition]
+  - name: Create Btrfs subvolumes
+    block:
+    - name: Mount root partition for subvolume creation
+      command: mount -o "{{ mount_src }}"3 "{{ mount_path }}"
+    - name: Create root subvolume
+      command: btrfs subvolume create "{{ mount_path }}"/@
+    - name: Create home subvolume
+      command: btrfs subvolume create "{{ mount_path }}"/@home
+    - name: Create var subvolume
+      command: btrfs subvolume create "{{ mount_path }}"/@var
+    - name: Create opt subvolume
+      command: btrfs subvolume create "{{ mount_path }}"/@opt
+    - name: Create tmp subvolume
+      command: btrfs subvolume create "{{ mount_path }}"/@tmp
+    - name: Create snapshot subvolume
+      command: btrfs subvolume create "{{ mount_path }}"/@.snapshot
+    - name: Unmount root partition
+      command: umount "{{ mount_path }}"
+  - name: Mount subvolumes
+    block:
+    - name: Mount root directory on subvolume
+      mount:
+        path: "{{ mount_path }}"
+        fstype: btrfs
+        src: "{{ mount_src }}"
+        opts: noatime,compress=zstd,subvol=@
+        state: present
+    - name: Mount home directory on subvolume
