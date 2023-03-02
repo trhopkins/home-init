@@ -3,69 +3,174 @@
   vars:
     mount_src: /dev/sda
     mount_path: /mnt
+    hostname: arch
   tasks:
-  - name: Abort if host is Archiso
-    fail:
-      msg: 'This host is not booted from the Arch installer iso.'
-    when: ansible_nodename != 'archiso'
-  - name: Synchronize clock via NTP
-    shell: timedatectl set-ntp true
-  - name: Partition boot disk
-    block:
-    - name: Wipe install drive partitions
-      shell: find /dev -wholename "{{ mount_src }}" -exec -wipefs --force --all {} \;
-    - name: Create boot partition
-      parted:
-        device: "{{ mount_src }}"
-        label: gpt
-        number: 1
-        part_end: 512M
-        name: boot
-        flags: [boot, esp]
-        state: present
-    - name: Create swap partition
-      parted:
-        device: "{{ mount_src }}"
-        label: gpt
-        number: 2
-        part_end: 8G
-        name: swap
-        flags: [swap]
-        state: present
-    - name: Create swap partition
-      parted:
-        device: "{{ mount_src }}"
-        label: gpt
-        number: 3
-        part_end: 100%
-        name: root
-        flags: [root]
-        state: present
-  - name: Create Btrfs subvolumes
-    block:
-    - name: Mount root partition for subvolume creation
-      command: mount -o "{{ mount_src }}"3 "{{ mount_path }}"
-    - name: Create root subvolume
-      command: btrfs subvolume create "{{ mount_path }}"/@
-    - name: Create home subvolume
-      command: btrfs subvolume create "{{ mount_path }}"/@home
-    - name: Create var subvolume
-      command: btrfs subvolume create "{{ mount_path }}"/@var
-    - name: Create opt subvolume
-      command: btrfs subvolume create "{{ mount_path }}"/@opt
-    - name: Create tmp subvolume
-      command: btrfs subvolume create "{{ mount_path }}"/@tmp
-    - name: Create snapshot subvolume
-      command: btrfs subvolume create "{{ mount_path }}"/@.snapshot
-    - name: Unmount root partition
-      command: umount "{{ mount_path }}"
-  - name: Mount subvolumes
-    block:
-    - name: Mount root directory on subvolume
-      mount:
-        path: "{{ mount_path }}"
-        fstype: btrfs
-        src: "{{ mount_src }}"
-        opts: noatime,compress=zstd,subvol=@
-        state: present
-    - name: Mount home directory on subvolume
+    - name: Abort if host is Archiso
+      fail:
+        msg: This host is not booted from the Arch installer iso.
+      when: ansible_nodename != 'archiso'
+    - name: Synchronize clock via NTP
+      shell: timedatectl set-ntp true
+    - name: Partition boot disk
+      block:
+        - name: Wipe install drive partitions
+          shell: find /dev -wholename "{{ mount_src }}" -exec -wipefs --force --all {} \;
+        - name: Create boot partition
+          parted:
+            device: "{{ mount_src }}"
+            label: gpt
+            number: 1
+            part_end: 512M
+            name: boot
+            flags: [boot, esp]
+            state: present
+        - name: Create swap partition
+          parted:
+            device: "{{ mount_src }}"
+            label: gpt
+            number: 2
+            part_end: 8G
+            name: swap
+            flags: [swap]
+            state: present
+        - name: Create root partition
+          parted:
+            device: "{{ mount_src }}"
+            label: gpt
+            number: 3
+            part_end: 100%
+            name: root
+            flags: [root]
+            state: present
+    - name: Create Btrfs subvolumes
+      block:
+        - name: Mount root partition for subvolume creation
+          command: mount -o "{{ mount_src }}3" "{{ mount_path }}"
+        - name: Create root subvolume
+          command: btrfs subvolume create "{{ mount_path }}/@"
+        - name: Create home subvolume
+          command: btrfs subvolume create "{{ mount_path }}/@home"
+        - name: Create var subvolume
+          command: btrfs subvolume create "{{ mount_path }}/@var"
+        - name: Create opt subvolume
+          command: btrfs subvolume create "{{ mount_path }}/@opt"
+        - name: Create tmp subvolume
+          command: btrfs subvolume create "{{ mount_path }}/@tmp"
+        - name: Create snapshot subvolume
+          command: btrfs subvolume create "{{ mount_path }}/@.snapshot"
+        - name: Unmount root partition
+          command: umount "{{ mount_path }}"
+    - name: Mount subvolumes
+      block:
+        - name: Mount root directory on subvolume
+          mount:
+            path: "{{ mount_path }}"
+            fstype: btrfs
+            src: "{{ mount_src }}3"
+            opts: noatime,compress=zstd,space_cache,subvol=@
+            state: present
+        - name: Mount home directory on subvolume
+          mount:
+            path: "{{ mount_path }}/home"
+            fstype: btrfs
+            src: "{{ mount_src }}3"
+            opts: noatime,compress=zstd,space_cache,subvol=@home
+            state: present
+        - name: Mount var directory on subvolume
+          mount:
+            path: "{{ mount_path }}/var"
+            fstype: btrfs
+            src: "{{ mount_src }}3"
+            opts: subvol=@var
+            state: present
+        - name: Mount opt directory on subvolume
+          mount:
+            path: "{{ mount_path }}/opt"
+            fstype: btrfs
+            src: "{{ mount_src }}3"
+            opts: noatime,compress=zstd,space_cache,subvol=@opt
+            state: present
+        - name: Mount snapshot directory on subvolume
+          mount:
+            path: "{{ mount_path }}/.snapshots"
+            fstype: btrfs
+            src: "{{ mount_src }}3"
+            opts: noatime,compress=zstd,space_cache,subvol=@.snapshots
+            state: present
+    - name: Generate filesystem table
+      command: genfstab -U /mnt >> /mnt/etc/fstab
+    - name: Pacstrap necessary packages packages
+      command: >
+        pacstrap /mnt
+        base base-devel linux linux-firmware networkmanager dhcpcd openssh grub
+        efibootmgr reflector sudo python lua man-pages man-db texlive vi nvim
+        btrfs-progs intel-ucode
+    - name: Restrict mirrors to only the United States of America
+      lineinfile:
+        insertafter: \# --country
+        line: --country 'United States'
+        path: /mnt/etc/xdg/reflector/reflector.conf
+    - name: Chroot into the install
+      command: arch-chroot /mnt
+    - name: Set the timezone
+      command: ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
+    - name: Sync hardware and system clock
+      command: hwclock --systohc
+    - name: Set locales
+      block:
+        - name: Uncomment locale.gen line
+          lineinfile:
+            path: /etc/locale.gen
+            search_string: '#en_US.UTF-8 UTF-8'
+            line: en_US.UTF-8 UTF-8
+        - name: Set locale.conf
+          lineinfile:
+            path: /etc/locale.conf
+            line: LANG=en_US.UTF-8
+            create: true
+        - name: Generate locales
+          command: locale-gen
+    # hostname module doesn't modify this file
+    - name: Set hostname
+      lineinfile:
+        path: /etc/hostname
+        line: {{ hostname }}
+        create: true
+    - name: Set hostsfile
+      blockinfile:
+        path: /etc/hosts
+        block: |
+          127.0.0.1 localhost
+          ::1 localhost
+          127.0.1.1 {{ hostname }}.localdomain {{ hostname }}
+        create: true
+    - name: Add Btrfs module to mkinitcpio
+      lineinfile:
+        path: /etc/mkinitcpio.conf
+        regexp: ^MODULES()$
+        line: MODULES(btrfs)
+    - name: Recreate image
+      command: mkinitcpio -p linux
+    - name: Install bootloader
+      block:
+        - name: Install GRUB
+          command: >
+            grub-install
+              --target=x86_64-efi
+              --efi-directory=/boot
+              --bootloader-id=Arch
+        - name: Generate the GRUB configuration file
+          command: grub-mkconfig -o /boot/grub/grub.cfg
+    - name: Enable Network Manager
+      systemd:
+        name: NetworkManager
+        enabled: true
+    # - name: Add the base user
+    #   user:
+    #     name: reid
+    #     groups: wheel
+    #     comment: Travis Reid Hopkins
+    #     shell: /bin/bash
+    #     generate_ssh_key: true
+    #     ssh_key_bits: 4096
+    #     ssh_key_file: .ssh/id_rsa
