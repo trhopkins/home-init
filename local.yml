@@ -43,6 +43,10 @@
             part_end: 100%
             name: root
             state: present
+    - name: Create EFI filesystem
+      command: mkfs.fat -F 32 "{{ mount_src }}"1
+    - name: Create Btrfs filesystem
+      command: mkfs -f -m single -L ROOT "{{ mount_src }}"3
     - name: Create Btrfs subvolumes
       block:
         - name: Mount root partition for subvolume creation
@@ -91,6 +95,27 @@
             src: "{{ mount_src }}3"
             opts: noatime,compress=zstd,space_cache,subvol=@opt
             state: present
+        - name: Install Arch Linux
+          command: >
+            pacstrap /mnt
+            linux
+            linux-firmware
+            intel-ucode
+            base
+            base-devel
+            grub
+            efibootmgr
+            openssh
+            dhcpcd
+            btrfs-progs
+            reflector
+            neovim
+            man-pages
+            man-db
+            lua
+            python
+            ansible
+            networkmanager
         - name: Mount snapshot directory on subvolume
           mount:
             path: "{{ mount_path }}/.snapshots"
@@ -99,4 +124,4 @@
             opts: noatime,compress=zstd,space_cache,subvol=@.snapshots
             state: present
     - name: Generate filesystem table
-      command: genfstab -U /mnt >> /mnt/etc/fstab
+      command: genfstab -U "{{ mount_path }}" >> "{{ mount_path }}"/etc/fstab
