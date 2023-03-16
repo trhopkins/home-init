@@ -196,7 +196,7 @@
       lineinfile:
         path: "{{ mount_path }}/etc/mkinitcpio.conf"
         regex: ^HOOKS=
-        line: HOOKS=(base keyboard udev autodetect modconf block keymap encrypt btrfs filesystem)
+        line: HOOKS=(base keyboard udev autodetect modconf block keymap encrypt btrfs filesystems)
     - name: Create new initramfs
       command: arch-chroot "{{ mount_path }}" mkinitcpio -p linux
     - name: Set up GRUB bootloader
