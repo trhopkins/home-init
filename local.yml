@@ -88,7 +88,8 @@
             fstype: vfat
             src: "{{ mount_src }}1"
             state: mounted
-            fstab: /mnt/etc/fstab
+            #fstab: /mnt/etc/fstab
+            fstab: "{{ mount_path }}/etc/fstab"
         - name: Mount home directory on subvolume
           mount:
             path: "{{ mount_path }}/home"
@@ -96,7 +97,7 @@
             src: "{{ mount_src }}3"
             opts: noatime,compress=zstd,space_cache=v2,subvol=@home
             state: mounted
-            fstab: /mnt/etc/fstab
+            fstab: "{{ mount_path }}/etc/fstab"
         - name: Mount var directory on subvolume
           mount:
             path: "{{ mount_path }}/var"
@@ -104,7 +105,7 @@
             src: "{{ mount_src }}3"
             opts: subvol=@var
             state: mounted
-            fstab: /mnt/etc/fstab
+            fstab: "{{ mount_path }}/etc/fstab"
         - name: Mount opt directory on subvolume
           mount:
             path: "{{ mount_path }}/opt"
@@ -112,7 +113,7 @@
             src: "{{ mount_src }}3"
             opts: noatime,compress=zstd,space_cache=v2,subvol=@opt
             state: mounted
-            fstab: /mnt/etc/fstab
+            fstab: "{{ mount_path }}/etc/fstab"
         - name: Mount snapshot directory on subvolume
           mount:
             path: "{{ mount_path }}/.snapshots"
@@ -120,11 +121,11 @@
             src: "{{ mount_src }}3"
             opts: noatime,compress=zstd,space_cache=v2,subvol=@.snapshots
             state: mounted
-            fstab: /mnt/etc/fstab
+            fstab: "{{ mount_path }}/etc/fstab"
     - name: Install Arch Linux
       #when: false
       command: >
-        pacstrap /mnt
+        pacstrap "{{ mount_path }}"
         base
         base-devel
         linux
@@ -145,15 +146,19 @@
         dhcpcd
     - name: Generate filesystem table
       command: genfstab -U "{{ mount_path }}" >> "{{ mount_path }}"/etc/fstab
+    #- name: Arch-chroot into the install
+      #command: arch-chroot /mnt
     - name: Set the timezone
-      command: arch-chroot /mnt ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
+      command: arch-chroot "{{ mount_path }}" ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
+      #command: ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
     - name: Sync the hardware clock
-      command: arch-chroot /mnt hwclock --systohc
+      command: arch-chroot "{{ mount_path }}" hwclock --systohc
+      #command: hwclock --systohc
     - name: Set locale information
       block:
         - name: Uncomment locale.gen line
           lineinfile:
-            path: /mnt/etc/locale.gen
+            path: "{{ mount_path }}/etc/locale.gen"
             search_string: '#en_US.UTF-8 UTF-8'
             line: 'en_US.UTF-8 UTF-8'
         - name: Set locale.conf language
@@ -162,10 +167,41 @@
             line: LANG=en_US.UTF-8
             create: true
         - name: Generate locale(s)
-          command: arch-chroot /mnt locale-gen
+          #command: arch-chroot "{{ mount_path }}" locale-gen
+          command: locale-gen
     - name: Set hostname
       lineinfile:
-        path: /mnt/etc/hostname
+        path: "{{ mount_path }}/etc/hostname"
         line: "{{ hostname }}"
         create: true
-
+    - name: Create hosts file
+      blockinfile:
+        path: "{{ mount_path }}/etc/hosts"
+        content: |
+          127.0.0.1 localhost
+          ::1 localhost
+          127.0.1.1 {{ hostname }}.localdomain {{ hostname }}
+        create: true
+    # requires to be arch-chrooted into the system???
+    #- name: Enable NetworkManager
+      #systemd:
+        #service: NetworkManager
+        #enabled: true
+    - name: Enable NetworkManager service
+      command: arch-chroot "{{ mount_path }}" systemctl enable NetworkManager
+    # requires OpenSSH to be installed
+    - name: Enable sshd service
+      command: arch-chroot "{{ mount_path }}" systemctl enable sshd
+    - name: Fix initramfs for Btrfs
+      lineinfile:
+        path: "{{ mount_path }}/etc/mkinitcpio.conf"
+        regex: ^HOOKS=
+        line: HOOKS=(base keyboard udev autodetect modconf block keymap encrypt btrfs filesystem)
+    - name: Create new initramfs
+      command: arch-chroot "{{ mount_path }}" mkinitcpio -p linux
+    - name: Set up GRUB bootloader
+      block:
+        - name: install GRUB
+          command: arch-chroot "{{ mount_path }}" grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
+        - name: Create GRUB config
+          command: arch-chroot "{{ mount_path }}" grub-mkconfig -o /boot/grub/grub.cfg
