@@ -44,13 +44,21 @@
             name: root
             state: present
     - name: Create EFI filesystem
-      command: mkfs.fat -F 32 "{{ mount_src }}"1
-    - name: Create Btrfs filesystem
-      command: mkfs -f -m single -L ROOT "{{ mount_src }}"3
+      filesystem:
+        dev: "{{ mount_src }}1"
+        fstype: vfat
+        opts: -F 32
+        force: true
+    - name: Create root filesystem
+      filesystem:
+        dev: "{{ mount_src }}3"
+        fstype: btrfs
+        opts: -f -L ROOT -m single
+        force: true
     - name: Create Btrfs subvolumes
       block:
         - name: Mount root partition for subvolume creation
-          command: mount "{{ mount_src }}3" "{{ mount_path }}"
+          command: mount "{{ mount_src }}"3 "{{ mount_path }}"
         - name: Create root subvolume
           command: btrfs subvolume create "{{ mount_path }}/@"
         - name: Create home subvolume
@@ -61,8 +69,8 @@
           command: btrfs subvolume create "{{ mount_path }}/@opt"
         - name: Create tmp subvolume
           command: btrfs subvolume create "{{ mount_path }}/@tmp"
-        - name: Create snapshot subvolume
-          command: btrfs subvolume create "{{ mount_path }}/@.snapshot"
+        - name: Create snapshots subvolume
+          command: btrfs subvolume create "{{ mount_path }}/@.snapshots"
         - name: Unmount root partition
           command: umount "{{ mount_path }}"
     - name: Mount subvolumes
@@ -72,56 +80,63 @@
             path: "{{ mount_path }}"
             fstype: btrfs
             src: "{{ mount_src }}3"
-            opts: noatime,compress=zstd,space_cache,subvol=@
-            state: present
+            opts: noatime,compress=zstd,space_cache,subvol=@,space_cache=v2
+            state: mounted
+            fstab: /mnt/etc/fstab
         - name: Mount home directory on subvolume
           mount:
             path: "{{ mount_path }}/home"
             fstype: btrfs
             src: "{{ mount_src }}3"
             opts: noatime,compress=zstd,space_cache,subvol=@home
-            state: present
+            state: mounted
+            fstab: /mnt/etc/fstab
         - name: Mount var directory on subvolume
           mount:
             path: "{{ mount_path }}/var"
             fstype: btrfs
             src: "{{ mount_src }}3"
             opts: subvol=@var
-            state: present
+            state: mounted
+            fstab: /mnt/etc/fstab
         - name: Mount opt directory on subvolume
           mount:
             path: "{{ mount_path }}/opt"
             fstype: btrfs
             src: "{{ mount_src }}3"
             opts: noatime,compress=zstd,space_cache,subvol=@opt
-            state: present
-        - name: Install Arch Linux
-          command: >
-            pacstrap /mnt
-            linux
-            linux-firmware
-            intel-ucode
-            base
-            base-devel
-            grub
-            efibootmgr
-            openssh
-            dhcpcd
-            btrfs-progs
-            reflector
-            neovim
-            man-pages
-            man-db
-            lua
-            python
-            ansible
-            networkmanager
+            state: mounted
+            fstab: /mnt/etc/fstab
         - name: Mount snapshot directory on subvolume
           mount:
             path: "{{ mount_path }}/.snapshots"
             fstype: btrfs
             src: "{{ mount_src }}3"
             opts: noatime,compress=zstd,space_cache,subvol=@.snapshots
-            state: present
+            state: mounted
+            fstab: /mnt/etc/fstab
+    - name: Install Arch Linux
+      #when: false
+      command: >
+        pacstrap /mnt
+        base
+        base-devel
+        linux
+        linux-firmware
+        btrfs-progs
+        networkmanager
+        intel-ucode
+        neovim
+        openssh
+        grub
+        efibootmgr
+        reflector
+        sudo
+        python
+        lua
+        man-pages
+        man-db
+        dhcpcd
     - name: Generate filesystem table
       command: genfstab -U "{{ mount_path }}" >> "{{ mount_path }}"/etc/fstab
+
