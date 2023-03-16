@@ -5,16 +5,12 @@
     mount_path: /mnt
     hostname: arch
   tasks:
-    - name: Abort if host is Archiso
-      fail:
-        msg: This host is not booted from the Arch installer iso.
-      when: ansible_nodename != 'archiso'
-    - name: Synchronize clock via NTP
-      shell: timedatectl set-ntp true
+    - name: Synchronize clock via NTP for logging purposes
+      command: timedatectl set-ntp true
     - name: Partition boot disk
       block:
         - name: Wipe install drive partitions
-          shell: find /dev -wholename "{{ mount_src }}" -exec -wipefs --force --all {} \;
+          command: find /dev -wholename "{{ mount_src }}" -exec wipefs --force --all {} \;
         - name: Create boot partition
           parted:
             device: "{{ mount_src }}"
@@ -73,14 +69,24 @@
           command: btrfs subvolume create "{{ mount_path }}/@.snapshots"
         - name: Unmount root partition
           command: umount "{{ mount_path }}"
-    - name: Mount subvolumes
+    - name: Mount subvolumes and boot partition
       block:
+        #- name: Clear Btrfs space cache if present
+           #command: btrfs check --clear-cache v2 "{{ mount_src }}3"
+           #ignore_errors: true
         - name: Mount root directory on subvolume
           mount:
             path: "{{ mount_path }}"
             fstype: btrfs
             src: "{{ mount_src }}3"
-            opts: noatime,compress=zstd,space_cache,subvol=@,space_cache=v2
+            opts: noatime,compress=zstd,space_cache=v2,subvol=@
+            state: mounted
+            fstab: /mnt/etc/fstab
+        - name: Mount boot directory on subvolume
+          mount:
+            path: "{{ mount_path }}/boot"
+            fstype: vfat
+            src: "{{ mount_src }}1"
             state: mounted
             fstab: /mnt/etc/fstab
         - name: Mount home directory on subvolume
@@ -88,7 +94,7 @@
             path: "{{ mount_path }}/home"
             fstype: btrfs
             src: "{{ mount_src }}3"
-            opts: noatime,compress=zstd,space_cache,subvol=@home
+            opts: noatime,compress=zstd,space_cache=v2,subvol=@home
             state: mounted
             fstab: /mnt/etc/fstab
         - name: Mount var directory on subvolume
@@ -104,7 +110,7 @@
             path: "{{ mount_path }}/opt"
             fstype: btrfs
             src: "{{ mount_src }}3"
-            opts: noatime,compress=zstd,space_cache,subvol=@opt
+            opts: noatime,compress=zstd,space_cache=v2,subvol=@opt
             state: mounted
             fstab: /mnt/etc/fstab
         - name: Mount snapshot directory on subvolume
@@ -112,7 +118,7 @@
             path: "{{ mount_path }}/.snapshots"
             fstype: btrfs
             src: "{{ mount_src }}3"
-            opts: noatime,compress=zstd,space_cache,subvol=@.snapshots
+            opts: noatime,compress=zstd,space_cache=v2,subvol=@.snapshots
             state: mounted
             fstab: /mnt/etc/fstab
     - name: Install Arch Linux
@@ -139,4 +145,27 @@
         dhcpcd
     - name: Generate filesystem table
       command: genfstab -U "{{ mount_path }}" >> "{{ mount_path }}"/etc/fstab
+    - name: Set the timezone
+      command: arch-chroot /mnt ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
+    - name: Sync the hardware clock
+      command: arch-chroot /mnt hwclock --systohc
+    - name: Set locale information
+      block:
+        - name: Uncomment locale.gen line
+          lineinfile:
+            path: /mnt/etc/locale.gen
+            search_string: '#en_US.UTF-8 UTF-8'
+            line: 'en_US.UTF-8 UTF-8'
+        - name: Set locale.conf language
+          lineinfile:
+            path: /mnt/etc/locale.conf
+            line: LANG=en_US.UTF-8
+            create: true
+        - name: Generate locale(s)
+          command: arch-chroot /mnt locale-gen
+    - name: Set hostname
+      lineinfile:
+        path: /mnt/etc/hostname
+        line: "{{ hostname }}"
+        create: true
 
