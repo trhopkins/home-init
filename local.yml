@@ -54,21 +54,21 @@
     - name: Create Btrfs subvolumes
       block:
         - name: Mount root partition for subvolume creation
-          command: mount "{{ mount_src }}"3 "{{ mount_path }}"
+          command: mount "{{ mount_src }}"3 /mnt
         - name: Create root subvolume
-          command: btrfs subvolume create "{{ mount_path }}/@"
+          command: btrfs subvolume create /mnt/@
         - name: Create home subvolume
-          command: btrfs subvolume create "{{ mount_path }}/@home"
+          command: btrfs subvolume create /mnt/@home
         - name: Create var subvolume
-          command: btrfs subvolume create "{{ mount_path }}/@var"
+          command: btrfs subvolume create /mnt/@var
         - name: Create opt subvolume
-          command: btrfs subvolume create "{{ mount_path }}/@opt"
+          command: btrfs subvolume create /mnt/@opt
         - name: Create tmp subvolume
-          command: btrfs subvolume create "{{ mount_path }}/@tmp"
+          command: btrfs subvolume create /mnt/@tmp
         - name: Create snapshots subvolume
-          command: btrfs subvolume create "{{ mount_path }}/@.snapshots"
+          command: btrfs subvolume create /mnt/@.snapshots
         - name: Unmount root partition
-          command: umount "{{ mount_path }}"
+          command: umount /mnt
     - name: Mount subvolumes and boot partition
       block:
         #- name: Clear Btrfs space cache if present
@@ -76,7 +76,7 @@
            #ignore_errors: true
         - name: Mount root directory on subvolume
           mount:
-            path: "{{ mount_path }}"
+            path: /mnt
             fstype: btrfs
             src: "{{ mount_src }}3"
             opts: noatime,compress=zstd,space_cache=v2,subvol=@
@@ -84,48 +84,48 @@
             fstab: /mnt/etc/fstab
         - name: Mount boot directory on subvolume
           mount:
-            path: "{{ mount_path }}/boot"
+            path: /mnt/boot
             fstype: vfat
             src: "{{ mount_src }}1"
             state: mounted
             #fstab: /mnt/etc/fstab
-            fstab: "{{ mount_path }}/etc/fstab"
+            fstab: /mnt/etc/fstab
         - name: Mount home directory on subvolume
           mount:
-            path: "{{ mount_path }}/home"
+            path: /mnt/home
             fstype: btrfs
             src: "{{ mount_src }}3"
             opts: noatime,compress=zstd,space_cache=v2,subvol=@home
             state: mounted
-            fstab: "{{ mount_path }}/etc/fstab"
+            fstab: /mnt/etc/fstab
         - name: Mount var directory on subvolume
           mount:
-            path: "{{ mount_path }}/var"
+            path: /mnt/var
             fstype: btrfs
             src: "{{ mount_src }}3"
             opts: subvol=@var
             state: mounted
-            fstab: "{{ mount_path }}/etc/fstab"
+            fstab: /mnt/etc/fstab
         - name: Mount opt directory on subvolume
           mount:
-            path: "{{ mount_path }}/opt"
+            path: /mnt/opt
             fstype: btrfs
             src: "{{ mount_src }}3"
             opts: noatime,compress=zstd,space_cache=v2,subvol=@opt
             state: mounted
-            fstab: "{{ mount_path }}/etc/fstab"
+            fstab: /mnt/etc/fstab
         - name: Mount snapshot directory on subvolume
           mount:
-            path: "{{ mount_path }}/.snapshots"
+            path: /mnt/.snapshots
             fstype: btrfs
             src: "{{ mount_src }}3"
             opts: noatime,compress=zstd,space_cache=v2,subvol=@.snapshots
             state: mounted
-            fstab: "{{ mount_path }}/etc/fstab"
+            fstab: /mnt/etc/fstab
     - name: Install Arch Linux
       #when: false
       command: >
-        pacstrap "{{ mount_path }}"
+        pacstrap /mnt
         base
         base-devel
         linux
@@ -145,20 +145,21 @@
         man-db
         dhcpcd
     - name: Generate filesystem table
-      command: genfstab -U "{{ mount_path }}" >> "{{ mount_path }}"/etc/fstab
+      #command: genfstab -U /mnt >> /mnt/etc/fstab
+      command: genfstab -U /mnt >> /mnt/etc/fstab
     #- name: Arch-chroot into the install
       #command: arch-chroot /mnt
     - name: Set the timezone
-      command: arch-chroot "{{ mount_path }}" ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
+      command: arch-chroot /mnt ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
       #command: ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
     - name: Sync the hardware clock
-      command: arch-chroot "{{ mount_path }}" hwclock --systohc
+      command: arch-chroot /mnt hwclock --systohc
       #command: hwclock --systohc
     - name: Set locale information
       block:
         - name: Uncomment locale.gen line
           lineinfile:
-            path: "{{ mount_path }}/etc/locale.gen"
+            path: /mnt/etc/locale.gen
             search_string: '#en_US.UTF-8 UTF-8'
             line: 'en_US.UTF-8 UTF-8'
         - name: Set locale.conf language
@@ -167,16 +168,16 @@
             line: LANG=en_US.UTF-8
             create: true
         - name: Generate locale(s)
-          #command: arch-chroot "{{ mount_path }}" locale-gen
-          command: locale-gen
+          command: arch-chroot /mnt locale-gen
+          #command: locale-gen
     - name: Set hostname
       lineinfile:
-        path: "{{ mount_path }}/etc/hostname"
+        path: /mnt/etc/hostname
         line: "{{ hostname }}"
         create: true
     - name: Create hosts file
       blockinfile:
-        path: "{{ mount_path }}/etc/hosts"
+        path: /mnt/etc/hosts
         content: |
           127.0.0.1 localhost
           ::1 localhost
@@ -188,20 +189,20 @@
         #service: NetworkManager
         #enabled: true
     - name: Enable NetworkManager service
-      command: arch-chroot "{{ mount_path }}" systemctl enable NetworkManager
+      command: arch-chroot /mnt systemctl enable NetworkManager
     # requires OpenSSH to be installed
     - name: Enable sshd service
-      command: arch-chroot "{{ mount_path }}" systemctl enable sshd
+      command: arch-chroot /mnt systemctl enable sshd
     - name: Fix initramfs for Btrfs
       lineinfile:
-        path: "{{ mount_path }}/etc/mkinitcpio.conf"
+        path: /mnt/etc/mkinitcpio.conf
         regex: ^HOOKS=
-        line: HOOKS=(base keyboard udev autodetect modconf block keymap encrypt btrfs filesystems)
+        line: HOOKS=(base keyboard udev autodetect modconf block keymap encrypt btrfs filesystems fsck)
     - name: Create new initramfs
-      command: arch-chroot "{{ mount_path }}" mkinitcpio -p linux
+      command: arch-chroot /mnt mkinitcpio -p linux
     - name: Set up GRUB bootloader
       block:
         - name: install GRUB
-          command: arch-chroot "{{ mount_path }}" grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
+          command: arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
         - name: Create GRUB config
-          command: arch-chroot "{{ mount_path }}" grub-mkconfig -o /boot/grub/grub.cfg
+          command: arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
